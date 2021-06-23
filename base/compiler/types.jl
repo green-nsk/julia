@@ -10,10 +10,10 @@ swapped in as long as they follow the AbstractInterpreter API.
 
 All AbstractInterpreters are expected to provide at least the following methods:
 
-- InferenceParams(interp) - return an `InferenceParams` instance
-- OptimizationParams(interp) - return an `OptimizationParams` instance
-- get_world_counter(interp) - return the world age for this interpreter
-- get_inference_cache(interp) - return the runtime inference cache
+- `InferenceParams(interp)` - return an `InferenceParams` instance
+- `OptimizationParams(interp)` - return an `OptimizationParams` instance
+- `get_world_counter(interp)` - return the world age for this interpreter
+- `get_inference_cache(interp)` - return the runtime inference cache
 """
 abstract type AbstractInterpreter; end
 
