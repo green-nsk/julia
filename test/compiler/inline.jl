@@ -538,6 +538,9 @@ end
                 return a, b
             end
         end
+
+        import Core.Compiler: isType
+        limited(a) = @noinline(isType(a)) ? @inline(limited(a.parameters[1])) : rand(a)
     end
 
     let ci = code_typed1(m.force_inline_explicit, (Int,))
@@ -585,6 +588,10 @@ end
 
     let ci = code_typed1(m.nested, (Int,Int))
         @test count(x->isinvoke(x, :notinlined), ci.code) == 1
+    end
+
+    let ci = code_typed1(m.limited, (Any,))
+        @test count(x->isinvoke(x, :isType), ci.code) == 2
     end
 end
 

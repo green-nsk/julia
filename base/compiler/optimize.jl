@@ -21,10 +21,11 @@ function push!(et::EdgeTracker, ci::CodeInstance)
     push!(et, ci.def)
 end
 
-struct InliningState{S <: Union{EdgeTracker, Nothing}, T, P}
+struct InliningState{S <: Union{EdgeTracker, Nothing}, T, P, U}
     params::OptimizationParams
     et::S
     mi_cache::T
+    inf_cache::U
     policy::P
 end
 
@@ -64,6 +65,7 @@ mutable struct OptimizationState
         inlining = InliningState(params,
             EdgeTracker(s_edges, frame.valid_worlds),
             WorldView(code_cache(interp), frame.world),
+            get_inference_cache(interp),
             inlining_policy(interp))
         return new(frame.linfo,
                    frame.src, nothing, frame.stmt_info, frame.mod, frame.nargs,
@@ -98,6 +100,7 @@ mutable struct OptimizationState
         inlining = InliningState(params,
             nothing,
             WorldView(code_cache(interp), get_world_counter()),
+            get_inference_cache(interp),
             inlining_policy(interp))
         return new(linfo,
                    src, nothing, stmt_info, inmodule, nargs,

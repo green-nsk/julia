@@ -722,7 +722,7 @@ function resolve_todo(todo::InliningTodo, state::InliningState, flag::UInt8)
     (; match) = todo.spec::DelayedInliningSpec
 
     #XXX: update_valid_age!(min_valid[1], max_valid[1], sv)
-    isconst, src = false, nothing
+    isconst, src, argtypes = false, nothing, nothing
     if isa(match, InferenceResult)
         let inferred_src = match.src
             if isa(inferred_src, Const)
@@ -733,6 +733,9 @@ function resolve_todo(todo::InliningTodo, state::InliningState, flag::UInt8)
             else
                 isconst, src = false, inferred_src
             end
+        end
+        if is_stmt_inline(flag)
+            argtypes = match.argtypes
         end
     else
         linfo = get(state.mi_cache, todo.mi, nothing)
@@ -746,6 +749,9 @@ function resolve_todo(todo::InliningTodo, state::InliningState, flag::UInt8)
         else
             isconst, src = false, linfo
         end
+        if is_stmt_inline(flag)
+            argtypes = collect(todo.mi.specTypes.parameters)::Vector{Any}
+        end
     end
 
     et = state.et
@@ -753,6 +759,17 @@ function resolve_todo(todo::InliningTodo, state::InliningState, flag::UInt8)
     if isconst && et !== nothing
         push!(et, todo.mi)
         return ConstantCase(src)
+    end
+
+    if argtypes !== nothing && src === nothing
+        inf_cache = state.inf_cache
+        inf_result = cache_lookup(todo.mi, argtypes, inf_cache)
+        if isa(inf_result, InferenceResult)
+            src = inf_result.src
+            if isa(src, OptimizationState)
+                src = src.src
+            end
+        end
     end
 
     src = state.policy(src, flag, match)
