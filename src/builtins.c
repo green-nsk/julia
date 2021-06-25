@@ -1487,26 +1487,36 @@ static int equiv_field_types(jl_value_t *old, jl_value_t *ft)
     return 1;
 }
 
-static int references_name(jl_value_t *p, jl_typename_t *name, int affects_layout) JL_NOTSAFEPOINT
+static int references_name(jl_value_t *p, jl_typename_t *name, int affects_layout, htable_t seen) JL_NOTSAFEPOINT
 {
     if (jl_is_uniontype(p))
-        return references_name(((jl_uniontype_t*)p)->a, name, affects_layout) ||
-               references_name(((jl_uniontype_t*)p)->b, name, affects_layout);
+        return references_name(((jl_uniontype_t*)p)->a, name, affects_layout, seen) ||
+               references_name(((jl_uniontype_t*)p)->b, name, affects_layout, seen);
     if (jl_is_unionall(p))
-        return references_name((jl_value_t*)((jl_unionall_t*)p)->var, name, 0) ||
-               references_name(((jl_unionall_t*)p)->body, name, affects_layout);
+        return references_name((jl_value_t*)((jl_unionall_t*)p)->var, name, 0, seen) ||
+               references_name(((jl_unionall_t*)p)->body, name, affects_layout, seen);
     if (jl_is_typevar(p))
-        return references_name(((jl_tvar_t*)p)->ub, name, 0) ||
-               references_name(((jl_tvar_t*)p)->lb, name, 0);
+        return references_name(((jl_tvar_t*)p)->ub, name, 0, seen) ||
+               references_name(((jl_tvar_t*)p)->lb, name, 0, seen);
     if (jl_is_datatype(p)) {
         jl_datatype_t *dp = (jl_datatype_t*)p;
         if (affects_layout && dp->name == name)
             return 1;
-        affects_layout = dp->types == NULL || jl_svec_len(dp->types) != 0;
-        size_t i, l = jl_nparams(p);
-        for (i = 0; i < l; i++) {
-            if (references_name(jl_tparam(p, i), name, affects_layout))
-                return 1;
+        jl_svec_t *ft = dp->types;
+        if (ft && !ptrhash_has(&seen, (void*)p)) {
+            ptrhash_put(&seen, (void*)p, (void*)2);
+            size_t i, l = jl_svec_len(ft);
+            for (i = 0; i < l; i++) {
+                if (references_name(jl_svecref(ft, i), name, 1, seen))
+                    return 1;
+            }
+        }
+        else {
+            size_t i, l = jl_nparams(p);
+            for (i = 0; i < l; i++) {
+                if (references_name(jl_tparam(p, i), name, 1, seen))
+                    return 1;
+            }
         }
     }
     return 0;
@@ -1542,7 +1552,9 @@ JL_CALLABLE(jl_f__typebody)
                 size_t i, nf = jl_svec_len(ft);
                 for (i = 0; i < nf; i++) {
                     jl_value_t *fld = jl_svecref(ft, i);
-                    if (references_name(fld, dt->name, 1)) {
+                    htable_t seen;
+                    htable_new(&seen, 32);
+                    if (references_name(fld, dt->name, 1, seen)) {
                         dt->name->mayinlinealloc = 0;
                         break;
                     }
