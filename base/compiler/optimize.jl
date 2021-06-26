@@ -21,15 +21,14 @@ function push!(et::EdgeTracker, ci::CodeInstance)
     push!(et, ci.def)
 end
 
-struct InliningState{S <: Union{EdgeTracker, Nothing}, T, P, U}
+struct InliningState{S <: Union{EdgeTracker, Nothing}, T, I<:AbstractInterpreter}
     params::OptimizationParams
     et::S
     mi_cache::T
-    inf_cache::U
-    policy::P
+    interp::I
 end
 
-function default_inlining_policy(@nospecialize(src), stmt_flag::Union{Nothing,UInt8}, match::Union{MethodMatch,InferenceResult})
+function inlining_policy(interp::AbstractInterpreter, @nospecialize(src), stmt_flag::UInt8, match::Union{MethodMatch,InferenceResult})
     if isa(src, CodeInfo) || isa(src, Vector{UInt8})
         src_inferred = ccall(:jl_ir_flag_inferred, Bool, (Any,), src)
         src_inlineable = is_stmt_inline(stmt_flag) || ccall(:jl_ir_flag_inlineable, Bool, (Any,), src)
@@ -38,9 +37,12 @@ function default_inlining_policy(@nospecialize(src), stmt_flag::Union{Nothing,UI
         return (is_stmt_inline(stmt_flag) || src.src.inlineable) ? src.ir : nothing
     elseif src === nothing && is_stmt_inline(stmt_flag) && isa(match, MethodMatch)
         # when the source isn't available at this moment, try to re-infer and inline it
-        # HACK in order to avoid cycles here, we disable inlining and makes sure the following inference never comes here
-        # TODO sort out `AbstractInterpreter` interface to handle this well, and also inference should try to keep the source if the statement will be inlined
-        interp = NativeInterpreter(; opt_params = OptimizationParams(; inlining = false))
+        # NOTE we can make inference try to keep the source if the call is going to be inlined,
+        # but then inlining will depend on local state of inference and so the first entry
+        # and the succeeding ones may generate different code; rather we always re-infer
+        # the source to avoid the problem while it's obviously not most efficient
+        # HACK disable inlining for the re-inference to avoid cycles by making sure the following inference never comes here again
+        interp = NativeInterpreter(get_world_counter(interp); opt_params = OptimizationParams(; inlining = false))
         src, rt = typeinf_code(interp, match.method, match.spec_types, match.sparams, true)
         return src
     end
@@ -65,8 +67,7 @@ mutable struct OptimizationState
         inlining = InliningState(params,
             EdgeTracker(s_edges, frame.valid_worlds),
             WorldView(code_cache(interp), frame.world),
-            get_inference_cache(interp),
-            inlining_policy(interp))
+            interp)
         return new(frame.linfo,
                    frame.src, nothing, frame.stmt_info, frame.mod, frame.nargs,
                    frame.sptypes, frame.slottypes, false,
@@ -100,8 +101,7 @@ mutable struct OptimizationState
         inlining = InliningState(params,
             nothing,
             WorldView(code_cache(interp), get_world_counter()),
-            get_inference_cache(interp),
-            inlining_policy(interp))
+            interp)
         return new(linfo,
                    src, nothing, stmt_info, inmodule, nargs,
                    sptypes_from_meth_instance(linfo), slottypes, false,
@@ -192,10 +192,8 @@ function isinlineable(m::Method, me::OptimizationState, params::OptimizationPara
     return inlineable
 end
 
-is_stmt_inline(stmt_flag::UInt8)   = stmt_flag & IR_FLAG_INLINE != 0
-is_stmt_inline(::Nothing)          = false
+is_stmt_inline(stmt_flag::UInt8)   = stmt_flag & IR_FLAG_INLINE   != 0
 is_stmt_noinline(stmt_flag::UInt8) = stmt_flag & IR_FLAG_NOINLINE != 0
-is_stmt_noinline(::Nothing)        = false # not used for now
 
 # These affect control flow within the function (so may not be removed
 # if there is no usage within the function), but don't affect the purity

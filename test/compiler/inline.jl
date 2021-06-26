@@ -539,8 +539,19 @@ end
             end
         end
 
+        # test inlining of un-cached callsites
+
         import Core.Compiler: isType
+
         limited(a) = @noinline(isType(a)) ? @inline(limited(a.parameters[1])) : rand(a)
+
+        function multilimited(a)
+            if @noinline(isType(a))
+                return @inline(multilimited(a.parameters[1]))
+            else
+                return rand(Bool) ? rand(a) : @inline(multilimited(a))
+            end
+        end
     end
 
     let ci = code_typed1(m.force_inline_explicit, (Int,))
@@ -592,6 +603,11 @@ end
 
     let ci = code_typed1(m.limited, (Any,))
         @test count(x->isinvoke(x, :isType), ci.code) == 2
+    end
+    # check that inlining for recursive callsites doesn't depend on inference local cache
+    let ci1 = code_typed1(m.multilimited, (Any,))
+        ci2 = code_typed1(m.multilimited, (Any,))
+        @test ci1.code == ci2.code
     end
 end
 

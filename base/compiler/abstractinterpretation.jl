@@ -676,7 +676,7 @@ function const_prop_methodinstance_heuristic(interp::AbstractInterpreter, match:
         cache_inf = code.inferred
         if !(cache_inf === nothing)
             # TODO maybe we want to respect callsite `@inline`/`@noinline` annotations here ?
-            cache_inlineable = inlining_policy(interp)(cache_inf, nothing, match) !== nothing
+            cache_inlineable = inlining_policy(interp, cache_inf, 0x00, match) !== nothing
         end
     end
     if !cache_inlineable
